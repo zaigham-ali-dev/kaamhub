@@ -51,30 +51,42 @@ export default function Navbar({ onOpenAI }: NavbarProps) {
   const fetchNotifications = async () => {
     try {
       const res = await fetch("/api/notifications");
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success) {
-          setNotifications(json.data || []);
-          setUnreadCount(json.unreadCount || 0);
-        }
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || "Failed to fetch notifications");
       }
-    } catch {}
+
+      setNotifications(json.data || []);
+      setUnreadCount(json.unreadCount || 0);
+    } catch (error) {
+      console.error("Failed to fetch notifications:", error);
+    }
   };
 
   const markAllRead = async () => {
     try {
-      await fetch("/api/notifications", { method: "POST" });
+      const res = await fetch("/api/notifications", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || "Failed to mark notifications as read");
+      }
+
       setUnreadCount(0);
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    } catch {}
+    } catch (error) {
+      console.error("Failed to mark notifications as read:", error);
+    }
   };
 
   // Fetch notifications if logged in
   useEffect(() => {
     if (user) {
-      fetchNotifications();
-      const interval = setInterval(fetchNotifications, 20000);
-      return () => clearInterval(interval);
+      const initialFetch = setTimeout(fetchNotifications, 0);
+      const interval = setInterval(fetchNotifications, 5000);
+      return () => {
+        clearTimeout(initialFetch);
+        clearInterval(interval);
+      };
     }
   }, [user]);
 

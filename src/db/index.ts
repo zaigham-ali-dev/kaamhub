@@ -3,7 +3,11 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "./schema";
 
-const databaseUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/kaamhub_db";
+const databaseUrl = process.env.DATABASE_URL;
+
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL must be set.");
+}
 const isLocal = databaseUrl.includes("localhost") || databaseUrl.includes("127.0.0.1");
 
 const globalForDb = globalThis as typeof globalThis & {

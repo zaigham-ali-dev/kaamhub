@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import ClientLayout from "@/components/ClientLayout";
+import { Analytics } from "@vercel/analytics/next";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -39,6 +40,7 @@ export default function RootLayout({
     <html lang="en" className="scroll-smooth" data-scroll-behavior="smooth">
       <body className="antialiased font-sans bg-slate-50 text-slate-900">
         <ClientLayout>{children}</ClientLayout>
+        <Analytics />
       </body>
     </html>
   );

@@ -1,8 +1,13 @@
+import "dotenv/config";
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Client } from 'pg';
 
-const connectionString = "postgresql://postgres.gqoqkednpaeztnmgqjwe:Qasim%40Ali123@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres";
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+    throw new Error("DATABASE_URL must be set.");
+}
 
 async function main() {
     const client = new Client({

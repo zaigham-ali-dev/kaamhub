@@ -26,7 +26,8 @@ export async function GET() {
       data: list,
     });
   } catch (error) {
-    return NextResponse.json({ success: true, unreadCount: 0, data: [] });
+    console.error("GET notifications error:", error);
+    return NextResponse.json({ success: false, message: "Failed to fetch notifications" }, { status: 500 });
   }
 }
 
@@ -37,21 +38,17 @@ export async function POST() {
       return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
     }
 
-    try {
-      await db
-        .update(notifications)
-        .set({ read: true })
-        .where(eq(notifications.userId, user.id));
-    } catch (dbErr) {
-      // Handled
-    }
+    await db
+      .update(notifications)
+      .set({ read: true })
+      .where(eq(notifications.userId, user.id));
 
     return NextResponse.json({
       success: true,
       message: "All notifications marked as read",
     });
   } catch (error) {
-    return NextResponse.json({ success: true, message: "All notifications marked as read" });
+    console.error("POST notifications error:", error);
+    return NextResponse.json({ success: false, message: "Failed to update notifications" }, { status: 500 });
   }
 }
-

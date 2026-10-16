@@ -1,12 +1,17 @@
+import "dotenv/config";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "./schema";
 import bcrypt from "bcryptjs";
 import { MOCK_USERS, MOCK_CATEGORIES, MOCK_PROVIDERS, MOCK_SERVICES } from "../lib/mockData";
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@127.0.0.1:5432/kaamhub_db",
-});
+const databaseUrl = process.env.DATABASE_URL;
+
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL must be set.");
+}
+
+const pool = new Pool({ connectionString: databaseUrl });
 
 const db = drizzle(pool, { schema });
 

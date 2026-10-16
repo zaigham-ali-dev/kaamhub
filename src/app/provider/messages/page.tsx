@@ -16,6 +16,8 @@ import {
   Trash2,
   X,
   Check,
+  ChevronDown,
+  ArrowLeft,
 } from "lucide-react";
 import { ConversationData, MessageData } from "@/lib/types";
 
@@ -31,7 +33,12 @@ function ProviderMessagesContent() {
   const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [sending, setSending] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [mobileView, setMobileView] = useState<"list" | "chat">("chat");
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
+
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef(true);
+  const isInitialLoadRef = useRef(true);
 
   // Edit & Delete state
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -39,6 +46,25 @@ function ProviderMessagesContent() {
   const [editText, setEditText] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to bottom helper that strictly scrolls the messages container, NEVER the whole window
+  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior,
+      });
+    }
+  };
+
+  const handleScroll = () => {
+    if (!messagesContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+    // User is considered at bottom if within 80px
+    const atBottom = scrollHeight - scrollTop - clientHeight < 80;
+    isAtBottomRef.current = atBottom;
+    setShowScrollBottomBtn(!atBottom);
+  };
 
   // Close menu on outside click
   useEffect(() => {
@@ -59,6 +85,7 @@ function ProviderMessagesContent() {
         setConversations(json.data);
         if (targetConvId && json.data.some((c: ConversationData) => c.id === targetConvId)) {
           setActiveConvId(targetConvId);
+          setMobileView("chat");
         } else if (!activeConvId && json.data.length > 0) {
           setActiveConvId(json.data[0].id);
         }
@@ -75,8 +102,25 @@ function ProviderMessagesContent() {
     try {
       const res = await fetch(`/api/conversations/${convId}/messages`);
       const json = await res.json();
-      if (json.success) {
-        setMessages(json.data || []);
+      if (json.success && Array.isArray(json.data)) {
+        const incoming: MessageData[] = json.data;
+        // Avoid re-renders if messages haven't changed
+        setMessages((prev) => {
+          if (prev.length === incoming.length) {
+            const isIdentical = prev.every((m, idx) => {
+              const inc = incoming[idx];
+              return (
+                inc &&
+                m.id === inc.id &&
+                m.content === inc.content &&
+                m.read === inc.read &&
+                m.createdAt === inc.createdAt
+              );
+            });
+            if (isIdentical) return prev;
+          }
+          return incoming;
+        });
       }
     } catch (err) {
       console.error(err);
@@ -91,14 +135,28 @@ function ProviderMessagesContent() {
 
   useEffect(() => {
     if (activeConvId) {
+      isInitialLoadRef.current = true;
+      isAtBottomRef.current = true;
+      setShowScrollBottomBtn(false);
       fetchMessages(activeConvId, true);
       const interval = setInterval(() => fetchMessages(activeConvId, false), 3000);
       return () => clearInterval(interval);
     }
   }, [activeConvId]);
 
+  // Handle smart auto-scroll on messages change
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messages.length === 0) return;
+
+    if (isInitialLoadRef.current) {
+      // Instant scroll on conversation open
+      scrollToBottom("auto");
+      isInitialLoadRef.current = false;
+      isAtBottomRef.current = true;
+    } else if (isAtBottomRef.current) {
+      // Smooth scroll only if user was already at bottom
+      scrollToBottom("smooth");
+    }
   }, [messages]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -126,6 +184,9 @@ function ProviderMessagesContent() {
       },
     };
     setMessages((prev) => [...prev, optimisticMsg]);
+    isAtBottomRef.current = true;
+    setShowScrollBottomBtn(false);
+    setTimeout(() => scrollToBottom("smooth"), 40);
 
     try {
       const res = await fetch(`/api/conversations/${activeConvId}/messages`, {
@@ -242,7 +303,7 @@ function ProviderMessagesContent() {
         ) : (
           <div className="flex-1 grid grid-cols-1 md:grid-cols-3 bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden min-h-[550px]">
             {/* Conversations list */}
-            <div className="border-r border-slate-100 overflow-y-auto max-h-[640px] divide-y divide-slate-50">
+            <div className={`border-r border-slate-100 overflow-y-auto max-h-[640px] divide-y divide-slate-50 ${mobileView === "chat" ? "hidden md:block" : "block"}`}>
               <div className="p-3.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-xs font-bold text-slate-700 uppercase tracking-wider">
                 <span>Client Chats ({conversations.length})</span>
                 <span className="text-[10px] text-emerald-600 font-semibold normal-case">Direct Leads</span>
@@ -255,6 +316,7 @@ function ProviderMessagesContent() {
                     key={c.id}
                     onClick={() => {
                       setActiveConvId(c.id);
+                      setMobileView("chat");
                       setMessages([]);
                       setEditingId(null);
                       setMenuOpenId(null);
@@ -297,10 +359,21 @@ function ProviderMessagesContent() {
             </div>
 
             {/* Chat Thread */}
-            <div className="md:col-span-2 flex flex-col justify-between h-[640px]">
+            <div className={`relative md:col-span-2 flex flex-col justify-between h-[640px] ${mobileView === "list" ? "hidden md:flex" : "flex"}`}>
               {/* Header */}
               <div className="p-3.5 sm:p-4 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  {/* Mobile Back Button */}
+                  <button
+                    type="button"
+                    onClick={() => setMobileView("list")}
+                    className="md:hidden flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:text-emerald-700 bg-white hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors shadow-xs"
+                    title="Back to client chats"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Chats</span>
+                  </button>
+
                   <div className="relative">
                     <img
                       src={
@@ -332,7 +405,11 @@ function ProviderMessagesContent() {
               </div>
 
               {/* Messages area */}
-              <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50/40">
+              <div
+                ref={messagesContainerRef}
+                onScroll={handleScroll}
+                className="flex-1 min-h-0 p-4 overflow-y-auto space-y-3 bg-slate-50/40 overscroll-contain"
+              >
                 {messagesLoading ? (
                   <div className="h-full flex items-center justify-center text-xs text-slate-400">
                     <Loader2 className="w-5 h-5 animate-spin text-emerald-600 mr-2" />
@@ -350,11 +427,9 @@ function ProviderMessagesContent() {
                   </div>
                 ) : (
                   messages.map((m) => {
-                    // Check if message is from the provider (Me)
                     const isMe =
                       m.senderId === user?.id ||
-                      m.sender?.role === "PROVIDER" ||
-                      m.senderId.startsWith("usr_prov");
+                      m.senderId === activeConv?.provider?.userId;
 
                     const isEditing = editingId === m.id;
 
@@ -455,8 +530,23 @@ function ProviderMessagesContent() {
                     );
                   })
                 )}
-                <div ref={messagesEndRef} />
               </div>
+
+              {/* Floating Jump to Latest Button */}
+              {showScrollBottomBtn && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    isAtBottomRef.current = true;
+                    scrollToBottom("smooth");
+                    setShowScrollBottomBtn(false);
+                  }}
+                  className="absolute bottom-16 right-5 z-20 bg-white border border-slate-200 text-slate-700 shadow-md hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 text-[11px] font-semibold py-1.5 px-3 rounded-full flex items-center gap-1.5 transition-all animate-in fade-in slide-in-from-bottom-2 cursor-pointer"
+                >
+                  <ChevronDown className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Scroll to bottom</span>
+                </button>
+              )}
 
               {/* Input Box */}
               <form

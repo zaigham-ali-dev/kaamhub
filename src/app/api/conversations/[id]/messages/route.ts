@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { messages, users, conversations } from "@/db/schema";
+import { messages, users, conversations, notifications, providerProfiles } from "@/db/schema";
 import { eq, asc } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth";
 import { getMessagesByConvId, addMessageToStore } from "@/lib/chatStore";
@@ -76,32 +76,82 @@ export async function POST(
       senderId = defaultUser ? defaultUser.id : "usr_cust_1";
     }
 
-    // 1. Try DB insertion
+    // 1. Save the message and notify the other participant.
     let dbMsg = null;
     try {
-      const [inserted] = await db
-        .insert(messages)
-        .values({
-          conversationId: id,
-          senderId: senderId,
-          content: content.trim(),
-        })
-        .returning();
+      dbMsg = await db.transaction(async (tx) => {
+        const [conversation] = await tx
+          .select()
+          .from(conversations)
+          .where(eq(conversations.id, id))
+          .limit(1);
 
-      if (inserted) {
-        dbMsg = inserted;
+        const [inserted] = await tx
+          .insert(messages)
+          .values({
+            conversationId: id,
+            senderId,
+            content: content.trim(),
+          })
+          .returning();
 
-        // Update conversation lastMessageAt & updatedAt
-        await db
+        if (!inserted) return null;
+
+        await tx
           .update(conversations)
           .set({
             lastMessageAt: new Date(),
             updatedAt: new Date(),
           })
           .where(eq(conversations.id, id));
-      }
+
+        if (conversation) {
+          let recipientId: string | null = null;
+          let recipientRole: "CUSTOMER" | "PROVIDER" | null = null;
+
+          if (senderId === conversation.customerId) {
+            const [providerProfile] = await tx
+              .select({ userId: providerProfiles.userId })
+              .from(providerProfiles)
+              .where(eq(providerProfiles.id, conversation.providerId))
+              .limit(1);
+            recipientId = providerProfile?.userId || null;
+            recipientRole = "PROVIDER";
+          } else {
+            const [providerProfile] = await tx
+              .select({ userId: providerProfiles.userId })
+              .from(providerProfiles)
+              .where(eq(providerProfiles.id, conversation.providerId))
+              .limit(1);
+
+            if (providerProfile?.userId === senderId) {
+              recipientId = conversation.customerId;
+              recipientRole = "CUSTOMER";
+            }
+          }
+
+          if (recipientId && recipientId !== senderId && recipientRole) {
+            const [sender] = await tx
+              .select({ name: users.name })
+              .from(users)
+              .where(eq(users.id, senderId))
+              .limit(1);
+            const preview = content.trim();
+
+            await tx.insert(notifications).values({
+              userId: recipientId,
+              title: `New message from ${sender?.name || user?.name || "your chat"}`,
+              message: preview.length > 120 ? `${preview.slice(0, 117)}...` : preview,
+              type: "MESSAGE",
+              link: `${recipientRole === "PROVIDER" ? "/provider" : "/dashboard"}/messages?conv=${encodeURIComponent(id)}`,
+            });
+          }
+        }
+
+        return inserted;
+      });
     } catch (dbErr) {
-      console.error("DB insert message error:", dbErr);
+      console.error("DB insert message or notification error:", dbErr);
     }
 
     // 2. Also record in in-memory store for fallback parity
